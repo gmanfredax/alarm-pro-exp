@@ -68,6 +68,7 @@ static void MX_GPIO_Init(void);
 static void MX_CAN_Init(void);
 /* USER CODE BEGIN PFP */
 static void process_can_frames(void);
+static void monitor_can_health(uint32_t now_ms);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -106,7 +107,13 @@ int main(void)
   MX_GPIO_Init();
   MX_CAN_Init();
   /* USER CODE BEGIN 2 */
-
+  CAN_Bus_Init();
+  LED_Ctrl_Init();
+  SDO_Slave_Init();
+  PDO_Slave_Init();
+  Heartbeat_Slave_Init();
+  LSS_Slave_Init();
+  CAN_Bus_Start();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -159,6 +166,7 @@ int main(void)
       PDO_Slave_Task(now);
       Heartbeat_Slave_Task(now);
       LSS_Slave_Task(now);
+      monitor_can_health(now);
 
       HAL_Delay(1);
     /* USER CODE END WHILE */
@@ -299,6 +307,62 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+static void monitor_can_health(uint32_t now_ms)
+{
+    static uint32_t last_check = 0U;
+    static bool bus_fault_latched = false;
+    static bool master_missing_latched = false;
+
+    if (LED_Ctrl_IsIdentifyActive())
+    {
+        last_check = now_ms;
+        return;
+    }
+
+    if ((now_ms - last_check) < 200U)
+    {
+        return;
+    }
+    last_check = now_ms;
+
+    can_bus_diagnostics_t diag = {0};
+    CAN_Bus_GetDiagnostics(&diag);
+
+    bool bus_fault = diag.bus_off || diag.error_passive || (diag.error_code != HAL_CAN_ERROR_NONE);
+    bool master_missing = false;
+
+    if (!bus_fault)
+    {
+        if ((diag.rx_received == 0U) && (diag.tx_successful > 0U))
+        {
+            master_missing = (now_ms > 2000U);
+        }
+        else if (diag.last_rx_tick != 0U)
+        {
+            master_missing = (now_ms - diag.last_rx_tick) > 2000U;
+        }
+    }
+
+    if ((bus_fault != bus_fault_latched) || (master_missing != master_missing_latched))
+    {
+        if (bus_fault)
+        {
+            LED_Ctrl_Command(0x01, 0U, 2U);
+        }
+        else if (master_missing)
+        {
+            LED_Ctrl_Command(0x01, 0U, 1U);
+        }
+        else
+        {
+            LED_Ctrl_Command(0x00, 0U, 0U);
+        }
+
+        bus_fault_latched = bus_fault;
+        master_missing_latched = master_missing;
+    }
+}
+
 static void process_can_frames(void)
 {
     can_frame_t frame;
@@ -309,6 +373,7 @@ static void process_can_frames(void)
             LSS_Slave_OnFrame(&frame);
             PDO_Slave_OnFrame(&frame);
             SDO_Slave_OnFrame(&frame);
+            LED_Ctrl_AnnounceTraffic(40U);
         }
     }
 }

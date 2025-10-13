@@ -12,42 +12,41 @@
 
 #include <stdbool.h>
 
-static CAN_HandleTypeDef hcan;
+extern CAN_HandleTypeDef hcan;
 static uint8_t current_node_id = 0xFFU;
+
+static volatile uint32_t tx_successful = 0U;
+static volatile uint32_t tx_failed = 0U;
+static volatile uint32_t rx_received = 0U;
+static volatile uint32_t last_tx_tick = 0U;
+static volatile uint32_t last_rx_tick = 0U;
+static volatile uint32_t last_error_tick = 0U;
+static volatile uint32_t last_error_code_snapshot = 0U;
+static volatile uint32_t error_notifications = 0U;
+static can_frame_t last_rx_frame = {0};
+static bool last_rx_valid = false;
+static can_frame_t last_tx_frame = {0};
+static bool last_tx_valid = false;
+static can_bus_rx_log_entry_t rx_log[CAN_RX_LOG_DEPTH];
+static uint8_t rx_log_head = 0U;
+static uint8_t rx_log_count = 0U;
 
 void CAN_Bus_Init(void)
 {
-    __HAL_RCC_GPIOA_CLK_ENABLE();
-    __HAL_RCC_CAN1_CLK_ENABLE();
-
-    GPIO_InitTypeDef gpio = {0};
-    gpio.Pin = GPIO_PIN_11;
-    gpio.Mode = GPIO_MODE_INPUT;
-    gpio.Pull = GPIO_NOPULL;
-    HAL_GPIO_Init(GPIOA, &gpio);
-
-    gpio.Pin = GPIO_PIN_12;
-    gpio.Mode = GPIO_MODE_AF_PP;
-    gpio.Speed = GPIO_SPEED_FREQ_HIGH;
-    HAL_GPIO_Init(GPIOA, &gpio);
-
-    hcan.Instance = CAN1;
-    hcan.Init.Prescaler = 6;
-    hcan.Init.Mode = CAN_MODE_NORMAL;
-    hcan.Init.SyncJumpWidth = CAN_SJW_1TQ;
-    hcan.Init.TimeSeg1 = CAN_BS1_11TQ;
-    hcan.Init.TimeSeg2 = CAN_BS2_2TQ;
-    hcan.Init.TimeTriggeredMode = DISABLE;
-    hcan.Init.AutoBusOff = ENABLE;
-    hcan.Init.AutoWakeUp = ENABLE;
-    hcan.Init.AutoRetransmission = ENABLE;
-    hcan.Init.ReceiveFifoLocked = DISABLE;
-    hcan.Init.TransmitFifoPriority = ENABLE;
-
-    if (HAL_CAN_Init(&hcan) != HAL_OK)
-    {
-        Error_Handler();
-    }
+    current_node_id = 0xFFU;
+    tx_successful = 0U;
+    tx_failed = 0U;
+    rx_received = 0U;
+    last_tx_tick = 0U;
+    last_rx_tick = 0U;
+    last_error_tick = 0U;
+    last_error_code_snapshot = 0U;
+    error_notifications = 0U;
+    last_rx_valid = false;
+    last_tx_valid = false;
+    rx_log_head = 0U;
+    rx_log_count = 0U;
+    CAN_Bus_SetFilters(current_node_id);
 }
 
 void CAN_Bus_SetFilters(uint8_t node_id)
@@ -77,7 +76,13 @@ void CAN_Bus_Start(void)
     {
         Error_Handler();
     }
-    if (HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK)
+    if (HAL_CAN_ActivateNotification(&hcan,
+                                     CAN_IT_RX_FIFO0_MSG_PENDING |
+                                     CAN_IT_ERROR_WARNING |
+                                     CAN_IT_ERROR_PASSIVE |
+                                     CAN_IT_BUSOFF |
+                                     CAN_IT_LAST_ERROR_CODE |
+                                     CAN_IT_ERROR) != HAL_OK)
     {
         Error_Handler();
     }
@@ -94,11 +99,16 @@ bool CAN_Bus_Send(const can_frame_t *frame)
     uint32_t mailbox;
     if (HAL_CAN_AddTxMessage(&hcan, &header, (uint8_t *)frame->data, &mailbox) != HAL_OK)
     {
+        tx_failed++;
         return false;
     }
     while (HAL_CAN_IsTxMessagePending(&hcan, mailbox))
     {
     }
+    tx_successful++;
+    last_tx_tick = HAL_GetTick();
+    last_tx_frame = *frame;
+    last_tx_valid = true;
     return true;
 }
 
@@ -111,6 +121,18 @@ bool CAN_Bus_Read(can_frame_t *frame)
     }
     frame->id = header.StdId;
     frame->dlc = header.DLC;
+    rx_received++;
+    last_rx_tick = HAL_GetTick();
+    last_rx_frame = *frame;
+    last_rx_valid = true;
+
+    rx_log[rx_log_head].frame = *frame;
+    rx_log[rx_log_head].timestamp_ms = last_rx_tick;
+    rx_log_head = (uint8_t)((rx_log_head + 1U) % CAN_RX_LOG_DEPTH);
+    if (rx_log_count < CAN_RX_LOG_DEPTH)
+    {
+        rx_log_count++;
+    }
     return true;
 }
 
@@ -122,4 +144,66 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan_ptr)
 CAN_HandleTypeDef *CAN_Bus_GetHandle(void)
 {
     return &hcan;
+}
+
+void CAN_Bus_GetDiagnostics(can_bus_diagnostics_t *diagnostics)
+{
+    if (diagnostics == NULL)
+    {
+        return;
+    }
+
+    uint32_t esr = READ_REG(hcan.Instance->ESR);
+    diagnostics->state = HAL_CAN_GetState(&hcan);
+    diagnostics->error_code = HAL_CAN_GetError(&hcan);
+    diagnostics->tx_error_count = (uint8_t)((esr & CAN_ESR_TEC_Msk) >> CAN_ESR_TEC_Pos);
+    diagnostics->rx_error_count = (uint8_t)((esr & CAN_ESR_REC_Msk) >> CAN_ESR_REC_Pos);
+    diagnostics->last_error_code = (uint8_t)((esr & CAN_ESR_LEC_Msk) >> CAN_ESR_LEC_Pos);
+    diagnostics->error_warning = (esr & CAN_ESR_EWGF) != 0U;
+    diagnostics->error_passive = (esr & CAN_ESR_EPVF) != 0U;
+    diagnostics->bus_off = (esr & CAN_ESR_BOFF) != 0U;
+    diagnostics->tx_successful = tx_successful;
+    diagnostics->tx_failed = tx_failed;
+    diagnostics->rx_received = rx_received;
+    diagnostics->last_tx_tick = last_tx_tick;
+    diagnostics->last_rx_tick = last_rx_tick;
+    diagnostics->last_error_tick = last_error_tick;
+    diagnostics->last_error_code = (uint8_t)((esr & CAN_ESR_LEC_Msk) >> CAN_ESR_LEC_Pos);
+    diagnostics->last_error_flags = last_error_code_snapshot;
+    diagnostics->error_notifications = error_notifications;
+    diagnostics->last_rx_valid = last_rx_valid;
+    diagnostics->last_rx_frame = last_rx_frame;
+    diagnostics->last_tx_valid = last_tx_valid;
+    diagnostics->last_tx_frame = last_tx_frame;
+    diagnostics->rx_log_count = rx_log_count;
+}
+
+void HAL_CAN_ErrorCallback(CAN_HandleTypeDef *hcan_ptr)
+{
+    (void)hcan_ptr;
+    error_notifications++;
+    last_error_tick = HAL_GetTick();
+    last_error_code_snapshot = HAL_CAN_GetError(&hcan);
+}
+
+uint8_t CAN_Bus_GetRxLog(can_bus_rx_log_entry_t *entries, uint8_t max_entries)
+{
+    if ((entries == NULL) || (max_entries == 0U))
+    {
+        return 0U;
+    }
+
+    uint8_t count = rx_log_count;
+    if (count > max_entries)
+    {
+        count = max_entries;
+    }
+
+    for (uint8_t i = 0U; i < count; ++i)
+    {
+        uint8_t index = (uint8_t)((rx_log_head + CAN_RX_LOG_DEPTH - count + i) % CAN_RX_LOG_DEPTH);
+        entries[i] = rx_log[index];
+    }
+
+    return count;
 }

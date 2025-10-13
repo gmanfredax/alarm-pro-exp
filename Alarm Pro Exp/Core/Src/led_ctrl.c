@@ -27,17 +27,21 @@ static uint8_t remaining_blinks = 0U;
 static uint32_t on_duration = 0U;
 static uint32_t off_duration = 0U;
 static bool led_state = false;
+static bool identify_active = false;
+static bool traffic_pulse_active = false;
+static uint32_t traffic_pulse_deadline = 0U;
 
 static void set_led(bool on)
 {
-    HAL_GPIO_WritePin(LED_IDENTIFY_PORT, LED_IDENTIFY_PIN, on ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    /* LED on PC13 is wired as active-low, so drive low to turn it on. */
+    HAL_GPIO_WritePin(LED_IDENTIFY_PORT, LED_IDENTIFY_PIN, on ? GPIO_PIN_RESET : GPIO_PIN_SET);
     led_state = on;
 }
 
 void LED_Ctrl_Init(void)
 {
     GPIO_InitTypeDef gpio = {0};
-    __HAL_RCC_GPIOA_CLK_ENABLE();
+    __HAL_RCC_GPIOC_CLK_ENABLE();
     gpio.Pin = LED_IDENTIFY_PIN;
     gpio.Mode = GPIO_MODE_OUTPUT_PP;
     gpio.Speed = GPIO_SPEED_FREQ_LOW;
@@ -46,10 +50,14 @@ void LED_Ctrl_Init(void)
     current_mode = LED_MODE_OFF;
     next_transition = 0U;
     remaining_blinks = 0U;
+    identify_active = false;
+    traffic_pulse_active = false;
+    traffic_pulse_deadline = 0U;
 }
 
 void LED_Ctrl_SetIdentify(bool enable)
 {
+    traffic_pulse_active = false;
     if (enable)
     {
         current_mode = LED_MODE_IDENTIFY;
@@ -58,21 +66,25 @@ void LED_Ctrl_SetIdentify(bool enable)
         remaining_blinks = 0xFFU;
         set_led(true);
         next_transition = HAL_GetTick() + on_duration;
+        identify_active = true;
     }
     else
     {
         current_mode = LED_MODE_OFF;
         set_led(false);
+        identify_active = false;
     }
 }
 
 void LED_Ctrl_Command(uint8_t cmd, uint16_t duration_ms, uint8_t pattern_arg)
 {
+    traffic_pulse_active = false;
     switch (cmd)
     {
     case 0x00: // OFF
         current_mode = LED_MODE_OFF;
         set_led(false);
+        identify_active = false;
         break;
     case 0x01: // BLINK_ONESHOT
         current_mode = LED_MODE_PATTERN;
@@ -96,6 +108,7 @@ void LED_Ctrl_Command(uint8_t cmd, uint16_t duration_ms, uint8_t pattern_arg)
         }
         set_led(true);
         next_transition = HAL_GetTick() + on_duration;
+        identify_active = false;
         break;
     case 0x02: // IDENTIFY_TOGGLE
         LED_Ctrl_SetIdentify(true);
@@ -111,14 +124,53 @@ void LED_Ctrl_Command(uint8_t cmd, uint16_t duration_ms, uint8_t pattern_arg)
         off_duration = 200U;
         set_led(true);
         next_transition = HAL_GetTick() + on_duration;
+        identify_active = false;
         break;
     default:
         break;
     }
 }
 
+bool LED_Ctrl_IsIdentifyActive(void)
+{
+    return identify_active;
+}
+
+void LED_Ctrl_AnnounceTraffic(uint32_t pulse_ms)
+{
+    if (current_mode != LED_MODE_OFF)
+    {
+        return;
+    }
+
+    if (pulse_ms == 0U)
+    {
+        pulse_ms = 50U;
+    }
+
+    set_led(true);
+    traffic_pulse_active = true;
+    traffic_pulse_deadline = HAL_GetTick() + pulse_ms;
+}
+
 void LED_Ctrl_Task(uint32_t now_ms)
 {
+    if (traffic_pulse_active)
+    {
+        if (now_ms >= traffic_pulse_deadline)
+        {
+            traffic_pulse_active = false;
+            if (current_mode == LED_MODE_OFF)
+            {
+                set_led(false);
+            }
+        }
+        else if (current_mode == LED_MODE_OFF)
+        {
+            set_led(true);
+            return;
+        }
+    }
     if (current_mode == LED_MODE_OFF)
     {
         return;
