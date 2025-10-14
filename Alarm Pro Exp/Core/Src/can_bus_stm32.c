@@ -202,7 +202,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan_ptr)
     {
         return;
     }
-
+    HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);// toggle PA3 LED
     can_frame_t frame = {0};
     frame.id = header.StdId;
     frame.dlc = header.DLC;

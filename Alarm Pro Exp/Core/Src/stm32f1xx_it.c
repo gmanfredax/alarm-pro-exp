@@ -55,7 +55,7 @@
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
-
+extern CAN_HandleTypeDef hcan;
 /* USER CODE BEGIN EV */
 extern CAN_HandleTypeDef hcan;
 /* USER CODE END EV */
@@ -198,8 +198,6 @@ void SysTick_Handler(void)
 /* please refer to the startup file (startup_stm32f1xx.s).                    */
 /******************************************************************************/
 
-/* USER CODE BEGIN 1 */
-
 /**
   * @brief This function handles USB low priority or CAN RX0 interrupts.
   */
@@ -213,5 +211,3 @@ void USB_LP_CAN1_RX0_IRQHandler(void)
 
   /* USER CODE END USB_LP_CAN1_RX0_IRQn 1 */
 }
-
-/* USER CODE END 1 */

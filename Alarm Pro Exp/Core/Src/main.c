@@ -32,6 +32,7 @@
 
 #include <stdbool.h>
 #include <string.h>
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -59,6 +60,8 @@ static uint8_t input_change_counter = 0U;
 /* Private variables ---------------------------------------------------------*/
 CAN_HandleTypeDef hcan;
 
+UART_HandleTypeDef huart1;
+
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -67,6 +70,7 @@ CAN_HandleTypeDef hcan;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_CAN_Init(void);
+static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 static void process_can_frames(void);
 static void monitor_can_health(uint32_t now_ms);
@@ -143,7 +147,8 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-
+	uint8_t MSG[35] = {'\0'};
+	uint8_t X = 0;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -165,6 +170,7 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_CAN_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   CAN_Bus_Init();
 #if CAN_TEST_BROADCAST
@@ -180,6 +186,10 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
+  sprintf(MSG, "Hello Dudes! Tracing X = %d\r\n", X);
+  HAL_UART_Transmit(&huart1, MSG, sizeof(MSG), 100);
+  HAL_Delay(500);
   while (1)
   {
 
@@ -311,6 +321,39 @@ static void MX_CAN_Init(void)
   /* USER CODE BEGIN CAN_Init 2 */
 
   /* USER CODE END CAN_Init 2 */
+
+}
+
+/**
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART1_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART1_Init 0 */
+
+  /* USER CODE END USART1_Init 0 */
+
+  /* USER CODE BEGIN USART1_Init 1 */
+
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 115200;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART1_Init 2 */
+
+  /* USER CODE END USART1_Init 2 */
 
 }
 
@@ -457,6 +500,45 @@ static void process_can_frames(void)
         SDO_Slave_OnFrame(&frame);
         LED_Ctrl_AnnounceTraffic(40U);
     }
+}
+
+static void print_can_frame(const can_frame_t *frame)
+{
+    static const char hex_lookup[] = "0123456789ABCDEF";
+    char buffer[64];
+    int len = snprintf(buffer, sizeof(buffer), "CAN RX %03lX [%u]",
+                       (unsigned long)(frame->id & 0x7FFU),
+                       (unsigned int)frame->dlc);
+    if (len < 0)
+    {
+        return;
+    }
+
+    size_t used = (size_t)len;
+    if (used >= sizeof(buffer))
+    {
+        used = sizeof(buffer) > 0U ? (sizeof(buffer) - 1U) : 0U;
+    }
+
+    for (uint8_t i = 0U; (i < frame->dlc) && (i < 8U); ++i)
+    {
+        if ((used + 3U) >= sizeof(buffer))
+        {
+            break;
+        }
+        buffer[used++] = ' ';
+        buffer[used++] = hex_lookup[(frame->data[i] >> 4) & 0x0FU];
+        buffer[used++] = hex_lookup[frame->data[i] & 0x0FU];
+    }
+
+    if ((used + 2U) > sizeof(buffer))
+    {
+        used = sizeof(buffer) > 2U ? sizeof(buffer) - 2U : 0U;
+    }
+    buffer[used++] = '\r';
+    buffer[used++] = '\n';
+
+    HAL_UART_Transmit(&huart1, (uint8_t *)buffer, (uint16_t)used, HAL_MAX_DELAY);
 }
 /* USER CODE END 4 */
 
