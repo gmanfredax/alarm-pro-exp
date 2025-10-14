@@ -74,6 +74,7 @@ static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 static void process_can_frames(void);
 static void monitor_can_health(uint32_t now_ms);
+static void print_can_frame(const can_frame_t *frame);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -81,7 +82,7 @@ static void monitor_can_health(uint32_t now_ms);
 #if CAN_TEST_BROADCAST
 static void Drive_Led_On(bool on)
 {
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, on ? GPIO_PIN_RESET : GPIO_PIN_SET);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, on ? GPIO_PIN_SET : GPIO_PIN_RESET);
 }
 
 static void CAN_TestToggle_Init(void)
@@ -495,6 +496,7 @@ static void process_can_frames(void)
 #if CAN_TEST_BROADCAST
         CAN_TestToggle_ProcessFrame(&frame);
 #endif
+        print_can_frame(&frame);
         LSS_Slave_OnFrame(&frame);
         PDO_Slave_OnFrame(&frame);
         SDO_Slave_OnFrame(&frame);

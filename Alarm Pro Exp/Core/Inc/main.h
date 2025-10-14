@@ -43,7 +43,7 @@ extern "C" {
 /* USER CODE BEGIN EC */
 
 #ifndef CAN_TEST_BROADCAST
-#define CAN_TEST_BROADCAST 1
+#define CAN_TEST_BROADCAST 0
 #endif
 
 /* USER CODE END EC */
