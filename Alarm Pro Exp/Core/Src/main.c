@@ -30,6 +30,7 @@
 #include "pins.h"
 #include "sdo_slave.h"
 
+#include <stdbool.h>
 #include <string.h>
 /* USER CODE END Includes */
 
@@ -74,6 +75,54 @@ static void monitor_can_health(uint32_t now_ms);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+static void CAN_TestToggle_Init(void)
+{
+    CAN_FilterTypeDef filter = {0};
+    filter.FilterActivation = ENABLE;
+    filter.FilterBank = 0;
+    filter.FilterFIFOAssignment = CAN_FILTER_FIFO0;
+    filter.FilterIdHigh = 0x0000;
+    filter.FilterIdLow = 0x0000;
+    filter.FilterMaskIdHigh = 0x0000;
+    filter.FilterMaskIdLow = 0x0000;
+    filter.FilterMode = CAN_FILTERMODE_IDMASK;
+    filter.FilterScale = CAN_FILTERSCALE_32BIT;
+
+    if (HAL_CAN_ConfigFilter(&hcan, &filter) != HAL_OK) {
+        Error_Handler();
+    }
+
+    if (HAL_CAN_Start(&hcan) != HAL_OK) {
+        Error_Handler();
+    }
+
+    if (HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) {
+        Error_Handler();
+    }
+}
+
+static void Drive_Led_On(bool on)
+{
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, on ? GPIO_PIN_RESET : GPIO_PIN_SET);
+}
+
+void CAN_TestToggle_ProcessFrame(const CAN_RxHeaderTypeDef *rxHeader, const uint8_t *data)
+{
+    if (rxHeader->IDE != CAN_ID_STD) {
+        return; // the ESP32 sends standard IDs for the test helper
+    }
+
+    if (rxHeader->DLC < 2) {
+        return; // payload is too short to contain "on"/"off"
+    }
+
+    if (strncmp((const char *)data, "on", 2) == 0) {
+        Drive_Led_On(true);
+    } else if (rxHeader->DLC >= 3 && strncmp((const char *)data, "off", 3) == 0) {
+        Drive_Led_On(false);
+    }
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -107,6 +156,7 @@ int main(void)
   MX_GPIO_Init();
   MX_CAN_Init();
   /* USER CODE BEGIN 2 */
+  CAN_TestToggle_Init();
   CAN_Bus_Init();
   LED_Ctrl_Init();
   SDO_Slave_Init();
