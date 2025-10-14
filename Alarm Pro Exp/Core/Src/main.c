@@ -74,6 +74,11 @@ static void monitor_can_health(uint32_t now_ms);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+#if CAN_TEST_BROADCAST
+static void Drive_Led_On(bool on)
+{
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, on ? GPIO_PIN_RESET : GPIO_PIN_SET);
+}
 
 static void CAN_TestToggle_Init(void)
 {
@@ -81,47 +86,52 @@ static void CAN_TestToggle_Init(void)
     filter.FilterActivation = ENABLE;
     filter.FilterBank = 0;
     filter.FilterFIFOAssignment = CAN_FILTER_FIFO0;
-    filter.FilterIdHigh = 0x0000;
-    filter.FilterIdLow = 0x0000;
-    filter.FilterMaskIdHigh = 0x0000;
-    filter.FilterMaskIdLow = 0x0000;
     filter.FilterMode = CAN_FILTERMODE_IDMASK;
     filter.FilterScale = CAN_FILTERSCALE_32BIT;
+    filter.FilterIdHigh = (uint16_t)(0x100U << 5);
+    filter.FilterIdLow = 0U;
+    filter.FilterMaskIdHigh = (uint16_t)(0x7FFU << 5);
+    filter.FilterMaskIdLow = 0U;
+    filter.SlaveStartFilterBank = 14U;
 
-    if (HAL_CAN_ConfigFilter(&hcan, &filter) != HAL_OK) {
+    if (HAL_CAN_ConfigFilter(&hcan, &filter) != HAL_OK)
+    {
         Error_Handler();
     }
 
-    if (HAL_CAN_Start(&hcan) != HAL_OK) {
+    if (HAL_CAN_GetState(&hcan) == HAL_CAN_STATE_READY)
+    {
+        if (HAL_CAN_Start(&hcan) != HAL_OK)
+        {
+            Error_Handler();
+        }
+    }
+
+    if (HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK)
+    {
         Error_Handler();
     }
 
-    if (HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) {
-        Error_Handler();
-    }
+    Drive_Led_On(false);
 }
 
-static void Drive_Led_On(bool on)
+static void CAN_TestToggle_ProcessFrame(const can_frame_t *frame)
 {
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, on ? GPIO_PIN_RESET : GPIO_PIN_SET);
-}
-
-void CAN_TestToggle_ProcessFrame(const CAN_RxHeaderTypeDef *rxHeader, const uint8_t *data)
-{
-    if (rxHeader->IDE != CAN_ID_STD) {
-        return; // the ESP32 sends standard IDs for the test helper
+    if ((frame == NULL) || (frame->id != 0x100U) || (frame->dlc != 1U))
+    {
+        return;
     }
 
-    if (rxHeader->DLC < 2) {
-        return; // payload is too short to contain "on"/"off"
-    }
-
-    if (strncmp((const char *)data, "on", 2) == 0) {
+    if (frame->data[0] == 0x01U)
+    {
         Drive_Led_On(true);
-    } else if (rxHeader->DLC >= 3 && strncmp((const char *)data, "off", 3) == 0) {
+    }
+    else if (frame->data[0] == 0x00U)
+    {
         Drive_Led_On(false);
     }
 }
+#endif
 
 /* USER CODE END 0 */
 
@@ -156,8 +166,10 @@ int main(void)
   MX_GPIO_Init();
   MX_CAN_Init();
   /* USER CODE BEGIN 2 */
-  CAN_TestToggle_Init();
   CAN_Bus_Init();
+#if CAN_TEST_BROADCAST
+  CAN_TestToggle_Init();
+#endif
   LED_Ctrl_Init();
   SDO_Slave_Init();
   PDO_Slave_Init();
@@ -420,15 +432,30 @@ static void monitor_can_health(uint32_t now_ms)
 static void process_can_frames(void)
 {
     can_frame_t frame;
-    while (HAL_CAN_GetRxFifoFillLevel(CAN_Bus_GetHandle(), CAN_RX_FIFO0) > 0U)
+    for (;;)
     {
-        if (CAN_Bus_Read(&frame))
+#if CAN_TEST_BROADCAST
+        if (!CAN_Bus_Read(&frame))
         {
-            LSS_Slave_OnFrame(&frame);
-            PDO_Slave_OnFrame(&frame);
-            SDO_Slave_OnFrame(&frame);
-            LED_Ctrl_AnnounceTraffic(40U);
+            break;
         }
+#else
+        if (HAL_CAN_GetRxFifoFillLevel(CAN_Bus_GetHandle(), CAN_RX_FIFO0) == 0U)
+        {
+            break;
+        }
+        if (!CAN_Bus_Read(&frame))
+        {
+            break;
+        }
+#endif
+#if CAN_TEST_BROADCAST
+        CAN_TestToggle_ProcessFrame(&frame);
+#endif
+        LSS_Slave_OnFrame(&frame);
+        PDO_Slave_OnFrame(&frame);
+        SDO_Slave_OnFrame(&frame);
+        LED_Ctrl_AnnounceTraffic(40U);
     }
 }
 /* USER CODE END 4 */

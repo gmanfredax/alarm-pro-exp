@@ -11,6 +11,7 @@
 #include "main.h"
 
 #include <stdbool.h>
+#include <string.h>
 
 extern CAN_HandleTypeDef hcan;
 static uint8_t current_node_id = 0xFFU;
@@ -31,6 +32,13 @@ static can_bus_rx_log_entry_t rx_log[CAN_RX_LOG_DEPTH];
 static uint8_t rx_log_head = 0U;
 static uint8_t rx_log_count = 0U;
 
+#if CAN_TEST_BROADCAST
+static can_frame_t rx_queue[CAN_RX_LOG_DEPTH];
+static volatile uint8_t rx_queue_head = 0U;
+static volatile uint8_t rx_queue_tail = 0U;
+static volatile uint8_t rx_queue_count = 0U;
+#endif
+
 void CAN_Bus_Init(void)
 {
     current_node_id = 0xFFU;
@@ -47,10 +55,19 @@ void CAN_Bus_Init(void)
     rx_log_head = 0U;
     rx_log_count = 0U;
     CAN_Bus_SetFilters(current_node_id);
+#if CAN_TEST_BROADCAST
+    rx_queue_head = 0U;
+    rx_queue_tail = 0U;
+    rx_queue_count = 0U;
+#endif
 }
 
 void CAN_Bus_SetFilters(uint8_t node_id)
 {
+#if CAN_TEST_BROADCAST
+    (void)node_id;
+    return;
+#else
     current_node_id = node_id;
     CAN_FilterTypeDef filter = {0};
     filter.FilterBank = 0;
@@ -68,21 +85,28 @@ void CAN_Bus_SetFilters(uint8_t node_id)
     {
         Error_Handler();
     }
+#endif
 }
 
 void CAN_Bus_Start(void)
 {
-    if (HAL_CAN_Start(&hcan) != HAL_OK)
+    if (HAL_CAN_GetState(&hcan) == HAL_CAN_STATE_READY)
     {
-        Error_Handler();
+        if (HAL_CAN_Start(&hcan) != HAL_OK)
+        {
+            Error_Handler();
+        }
     }
-    if (HAL_CAN_ActivateNotification(&hcan,
-                                     CAN_IT_RX_FIFO0_MSG_PENDING |
-                                     CAN_IT_ERROR_WARNING |
-                                     CAN_IT_ERROR_PASSIVE |
-                                     CAN_IT_BUSOFF |
-                                     CAN_IT_LAST_ERROR_CODE |
-                                     CAN_IT_ERROR) != HAL_OK)
+    uint32_t interrupt_mask = CAN_IT_ERROR_WARNING |
+                              CAN_IT_ERROR_PASSIVE |
+                              CAN_IT_BUSOFF |
+                              CAN_IT_LAST_ERROR_CODE |
+                              CAN_IT_ERROR;
+#if CAN_TEST_BROADCAST
+    interrupt_mask |= CAN_IT_RX_FIFO0_MSG_PENDING;
+#endif
+
+    if (HAL_CAN_ActivateNotification(&hcan, interrupt_mask) != HAL_OK)
     {
         Error_Handler();
     }
@@ -114,6 +138,33 @@ bool CAN_Bus_Send(const can_frame_t *frame)
 
 bool CAN_Bus_Read(can_frame_t *frame)
 {
+    if (frame == NULL)
+    {
+        return false;
+    }
+
+#if CAN_TEST_BROADCAST
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    if (rx_queue_count == 0U)
+    {
+        if (primask == 0U)
+        {
+            __enable_irq();
+        }
+        return false;
+    }
+
+    *frame = rx_queue[rx_queue_tail];
+    rx_queue_tail = (uint8_t)((rx_queue_tail + 1U) % CAN_RX_LOG_DEPTH);
+    rx_queue_count--;
+
+    if (primask == 0U)
+    {
+        __enable_irq();
+    }
+    return true;
+#else
     CAN_RxHeaderTypeDef header = {0};
     if (HAL_CAN_GetRxMessage(&hcan, CAN_RX_FIFO0, &header, frame->data) != HAL_OK)
     {
@@ -134,11 +185,54 @@ bool CAN_Bus_Read(can_frame_t *frame)
         rx_log_count++;
     }
     return true;
+#endif
 }
 
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan_ptr)
 {
+#if CAN_TEST_BROADCAST
+    if (hcan_ptr != &hcan)
+    {
+        return;
+    }
+
+    CAN_RxHeaderTypeDef header = {0};
+    uint8_t data[8] = {0};
+    if (HAL_CAN_GetRxMessage(&hcan, CAN_RX_FIFO0, &header, data) != HAL_OK)
+    {
+        return;
+    }
+
+    can_frame_t frame = {0};
+    frame.id = header.StdId;
+    frame.dlc = header.DLC;
+    memcpy(frame.data, data, sizeof(frame.data));
+
+    uint8_t next_head = (uint8_t)((rx_queue_head + 1U) % CAN_RX_LOG_DEPTH);
+    rx_queue[rx_queue_head] = frame;
+    if (rx_queue_count == CAN_RX_LOG_DEPTH)
+    {
+        rx_queue_tail = (uint8_t)((rx_queue_tail + 1U) % CAN_RX_LOG_DEPTH);
+        rx_queue_count--;
+    }
+    rx_queue_head = next_head;
+    rx_queue_count++;
+
+    rx_received++;
+    last_rx_tick = HAL_GetTick();
+    last_rx_frame = frame;
+    last_rx_valid = true;
+
+    rx_log[rx_log_head].frame = frame;
+    rx_log[rx_log_head].timestamp_ms = last_rx_tick;
+    rx_log_head = (uint8_t)((rx_log_head + 1U) % CAN_RX_LOG_DEPTH);
+    if (rx_log_count < CAN_RX_LOG_DEPTH)
+    {
+        rx_log_count++;
+    }
+#else
     (void)hcan_ptr;
+#endif
 }
 
 CAN_HandleTypeDef *CAN_Bus_GetHandle(void)
