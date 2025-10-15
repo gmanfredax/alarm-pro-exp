@@ -16,9 +16,10 @@
 
 #include "stm32f1xx_hal.h"
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
-#include <stdbool.h>
+
 
 #define LSS_MASTER_ID   0x7E5U
 #define LSS_SLAVE_ID    0x7E4U
@@ -120,7 +121,8 @@ void LSS_Slave_Init(void)
         SDO_Slave_SetNodeId(node_id);
         Heartbeat_Slave_SetNodeId(node_id);
         char note[96];
-        (void)snprintf(note, sizeof(note), "LSS: restored node ID %u from EEPROM", (unsigned int)node_id);
+        (void)snprintf(note, sizeof(note),
+                       "LSS: restored node ID %u from EEPROM", (unsigned int)node_id);
         CAN_Bus_DebugPrintNote(note);
     }
     else

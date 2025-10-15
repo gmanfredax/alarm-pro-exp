@@ -74,7 +74,6 @@ static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 static void process_can_frames(void);
 static void monitor_can_health(uint32_t now_ms);
-//static void print_can_frame(const can_frame_t *frame);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/

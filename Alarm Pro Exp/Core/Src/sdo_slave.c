@@ -24,6 +24,7 @@ static output_config_t output_config[OUTPUT_CHANNEL_COUNT];
 static board_info_t board_info;
 static bool node_id_blocked_logged = false;
 static bool node_id_ready_logged = false;
+static bool cobid_mismatch_logged = false;
 
 static void send_abort(uint16_t index, uint8_t subindex, uint32_t code)
 {
@@ -142,6 +143,7 @@ void SDO_Slave_Init(void)
     EEPROM_LoadOutputConfig(output_config, OUTPUT_CHANNEL_COUNT);
     node_id_blocked_logged = false;
     node_id_ready_logged = false;
+    cobid_mismatch_logged = false;
 }
 
 void SDO_Slave_LoadDefaults(void)
@@ -165,6 +167,7 @@ void SDO_Slave_SetNodeId(uint8_t id)
 {
     node_id = id;
     node_id_ready_logged = false;
+    cobid_mismatch_logged = false;
     if (id == 0xFFU)
     {
         node_id_blocked_logged = false;
@@ -206,10 +209,22 @@ void SDO_Slave_OnFrame(const can_frame_t *frame)
         CAN_Bus_DebugPrintNote("SDO: node ID active, processing requests");
         node_id_ready_logged = true;
     }
-    if (frame->id != (SDO_RX_BASE + node_id))
+    uint16_t expected_cobid = (uint16_t)(SDO_RX_BASE + node_id);
+    if (frame->id != expected_cobid)
     {
+        if (!cobid_mismatch_logged && frame->id >= SDO_RX_BASE && frame->id < (SDO_RX_BASE + 0x80U))
+        {
+            char note[96];
+            (void)snprintf(note, sizeof(note),
+                           "SDO: ignoring request on COB-ID 0x%03lX, expecting 0x%03X",
+                           (unsigned long)frame->id,
+                           (unsigned int)expected_cobid);
+            CAN_Bus_DebugPrintNote(note);
+            cobid_mismatch_logged = true;
+        }
         return;
     }
+    cobid_mismatch_logged = false;
     if (frame->dlc != 8)
     {
         return;
