@@ -12,8 +12,11 @@
 
 #include <stdbool.h>
 #include <string.h>
+#include <stdio.h>
 
 extern CAN_HandleTypeDef hcan;
+extern UART_HandleTypeDef huart1;
+
 static uint8_t current_node_id = 0xFFU;
 
 static volatile uint32_t tx_successful = 0U;
@@ -31,6 +34,8 @@ static bool last_tx_valid = false;
 static can_bus_rx_log_entry_t rx_log[CAN_RX_LOG_DEPTH];
 static uint8_t rx_log_head = 0U;
 static uint8_t rx_log_count = 0U;
+
+static void CAN_Bus_DebugPrintFrame(const char *direction, const can_frame_t *frame);
 
 #if CAN_TEST_BROADCAST
 static can_frame_t rx_queue[CAN_RX_LOG_DEPTH];
@@ -133,6 +138,7 @@ bool CAN_Bus_Send(const can_frame_t *frame)
     last_tx_tick = HAL_GetTick();
     last_tx_frame = *frame;
     last_tx_valid = true;
+    CAN_Bus_DebugPrintFrame("TX", frame);
     return true;
 }
 
@@ -186,6 +192,52 @@ bool CAN_Bus_Read(can_frame_t *frame)
     }
     return true;
 #endif
+}
+
+static void CAN_Bus_DebugPrintFrame(const char *direction, const can_frame_t *frame)
+{
+    if ((direction == NULL) || (frame == NULL))
+    {
+        return;
+    }
+
+    char buffer[64];
+    int len = snprintf(buffer, sizeof(buffer), "CAN %s %03lX [%u]",
+                       direction,
+                       (unsigned long)(frame->id & 0x7FFU),
+                       (unsigned int)frame->dlc);
+    if (len < 0)
+    {
+        return;
+    }
+
+    size_t used = (size_t)len;
+    if (used >= sizeof(buffer))
+    {
+        used = sizeof(buffer) > 0U ? (sizeof(buffer) - 1U) : 0U;
+    }
+
+    static const char hex_lookup[] = "0123456789ABCDEF";
+    for (uint8_t i = 0U; (i < frame->dlc) && (i < 8U); ++i)
+    {
+        if ((used + 3U) >= sizeof(buffer))
+        {
+            break;
+        }
+        buffer[used++] = ' ';
+        buffer[used++] = hex_lookup[(frame->data[i] >> 4) & 0x0FU];
+        buffer[used++] = hex_lookup[frame->data[i] & 0x0FU];
+    }
+
+    if ((used + 2U) > sizeof(buffer))
+    {
+        used = sizeof(buffer) > 2U ? (sizeof(buffer) - 2U) : 0U;
+    }
+
+    buffer[used++] = '\r';
+    buffer[used++] = '\n';
+
+    HAL_UART_Transmit(&huart1, (uint8_t *)buffer, (uint16_t)used, HAL_MAX_DELAY);
 }
 
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan_ptr)
