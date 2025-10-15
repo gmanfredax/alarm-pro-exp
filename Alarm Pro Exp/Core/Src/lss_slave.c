@@ -21,13 +21,15 @@
 
 #define LSS_MASTER_ID   0x7E5U
 #define LSS_SLAVE_ID    0x7E4U
+#define LSS_DEFAULT_NODE_ID 0x7FU
 
 #define LSS_OP_DISCOVER 0x01U
 #define LSS_OP_IDENTIFY 0x02U
 #define LSS_OP_ASSIGN   0x03U
 #define LSS_OP_ACK      0x04U
 
-static uint8_t node_id = 0xFFU;
+static uint8_t node_id = LSS_DEFAULT_NODE_ID;
+static bool node_id_assigned = false;
 static uint32_t discover_nonce = 0U;
 static uint64_t device_uid = 0U;
 static uint32_t identify_deadline = 0U;
@@ -56,14 +58,19 @@ static void send_segmented(uint8_t op, const uint8_t *payload, uint8_t len)
     {
         can_frame_t frame = {0};
         frame.id = LSS_SLAVE_ID;
-        frame.dlc = 8;
         frame.data[0] = op;
         frame.data[1] = segment;
-        uint8_t chunk = (uint8_t)((len - offset) > 6U ? 6U : (len - offset));
+
+        uint8_t remaining = (uint8_t)(len - offset);
+        uint8_t chunk = (remaining > 5U) ? 5U : remaining;
         frame.data[2] = chunk;
         memcpy(&frame.data[3], &payload[offset], chunk);
+
+        frame.dlc = (uint8_t)(3U + chunk);
+
         offset += chunk;
         segment++;
+
         CAN_Bus_Send(&frame);
     }
 }
@@ -92,12 +99,15 @@ static void send_assign_ack(uint8_t status)
 
 void LSS_Slave_Init(void)
 {
+    node_id = LSS_DEFAULT_NODE_ID;
+    node_id_assigned = false;
     device_uid = derive_uid();
     EEPROM_LoadBoardInfo(&board_info);
     uint8_t stored_id = 0xFFU;
-    if (EEPROM_LoadNodeId(&stored_id))
+    if (EEPROM_LoadNodeId(&stored_id) && stored_id != 0xFFU)
     {
         node_id = stored_id;
+        node_id_assigned = true;
         CAN_Bus_SetFilters(node_id);
         PDO_Slave_SetNodeId(node_id);
         SDO_Slave_SetNodeId(node_id);
@@ -105,8 +115,12 @@ void LSS_Slave_Init(void)
     }
     else
     {
-        node_id = 0xFFU;
+        node_id = LSS_DEFAULT_NODE_ID;
+        node_id_assigned = false;
         CAN_Bus_SetFilters(0xFFU);
+        PDO_Slave_SetNodeId(0xFFU);
+        SDO_Slave_SetNodeId(node_id);
+        Heartbeat_Slave_SetNodeId(0xFFU);
     }
 }
 
@@ -141,7 +155,7 @@ void LSS_Slave_OnFrame(const can_frame_t *frame)
     switch (op)
     {
     case LSS_OP_DISCOVER:
-        if (node_id == 0xFFU && frame->dlc >= 5)
+        if (!node_id_assigned && frame->dlc >= 5)
         {
             memcpy(&discover_nonce, &frame->data[1], sizeof(discover_nonce));
             uint32_t random_delay = HAL_GetTick();
@@ -173,6 +187,7 @@ void LSS_Slave_OnFrame(const can_frame_t *frame)
                     memcpy(&base_input_index, &assign_buffer[9], sizeof(base_input_index));
                     memcpy(&base_output_index, &assign_buffer[11], sizeof(base_output_index));
                     node_id = new_id;
+                    node_id_assigned = true;
                     EEPROM_SaveNodeId(node_id);
                     CAN_Bus_SetFilters(node_id);
                     PDO_Slave_SetNodeId(node_id);
@@ -195,5 +210,5 @@ uint8_t LSS_Slave_GetNodeId(void)
 
 bool LSS_Slave_HasAssignedNodeId(void)
 {
-    return node_id != 0xFFU;
+    return node_id_assigned;
 }

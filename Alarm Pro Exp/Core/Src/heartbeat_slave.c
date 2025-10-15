@@ -43,6 +43,10 @@ void Heartbeat_Slave_UpdateMetrics(uint16_t voltage, int16_t temperature)
 
 void Heartbeat_Slave_Task(uint32_t now_ms)
 {
+    if (!LSS_Slave_HasAssignedNodeId())
+    {
+        return;
+    }
     if (node_id == 0xFFU)
     {
         return;
