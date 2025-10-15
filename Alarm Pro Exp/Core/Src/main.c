@@ -74,7 +74,7 @@ static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 static void process_can_frames(void);
 static void monitor_can_health(uint32_t now_ms);
-static void print_can_frame(const can_frame_t *frame);
+//static void print_can_frame(const can_frame_t *frame);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -496,51 +496,12 @@ static void process_can_frames(void)
 #if CAN_TEST_BROADCAST
         CAN_TestToggle_ProcessFrame(&frame);
 #endif
-        print_can_frame(&frame);
+        CAN_Bus_DebugPrintFrame("RX", &frame);
         LSS_Slave_OnFrame(&frame);
         PDO_Slave_OnFrame(&frame);
         SDO_Slave_OnFrame(&frame);
         LED_Ctrl_AnnounceTraffic(40U);
     }
-}
-
-static void print_can_frame(const can_frame_t *frame)
-{
-    static const char hex_lookup[] = "0123456789ABCDEF";
-    char buffer[64];
-    int len = snprintf(buffer, sizeof(buffer), "CAN RX %03lX [%u]",
-                       (unsigned long)(frame->id & 0x7FFU),
-                       (unsigned int)frame->dlc);
-    if (len < 0)
-    {
-        return;
-    }
-
-    size_t used = (size_t)len;
-    if (used >= sizeof(buffer))
-    {
-        used = sizeof(buffer) > 0U ? (sizeof(buffer) - 1U) : 0U;
-    }
-
-    for (uint8_t i = 0U; (i < frame->dlc) && (i < 8U); ++i)
-    {
-        if ((used + 3U) >= sizeof(buffer))
-        {
-            break;
-        }
-        buffer[used++] = ' ';
-        buffer[used++] = hex_lookup[(frame->data[i] >> 4) & 0x0FU];
-        buffer[used++] = hex_lookup[frame->data[i] & 0x0FU];
-    }
-
-    if ((used + 2U) > sizeof(buffer))
-    {
-        used = sizeof(buffer) > 2U ? sizeof(buffer) - 2U : 0U;
-    }
-    buffer[used++] = '\r';
-    buffer[used++] = '\n';
-
-    HAL_UART_Transmit(&huart1, (uint8_t *)buffer, (uint16_t)used, HAL_MAX_DELAY);
 }
 /* USER CODE END 4 */
 

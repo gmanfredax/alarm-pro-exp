@@ -35,8 +35,6 @@ static can_bus_rx_log_entry_t rx_log[CAN_RX_LOG_DEPTH];
 static uint8_t rx_log_head = 0U;
 static uint8_t rx_log_count = 0U;
 
-static void CAN_Bus_DebugPrintFrame(const char *direction, const can_frame_t *frame);
-
 #if CAN_TEST_BROADCAST
 static can_frame_t rx_queue[CAN_RX_LOG_DEPTH];
 static volatile uint8_t rx_queue_head = 0U;
@@ -194,7 +192,7 @@ bool CAN_Bus_Read(can_frame_t *frame)
 #endif
 }
 
-static void CAN_Bus_DebugPrintFrame(const char *direction, const can_frame_t *frame)
+void CAN_Bus_DebugPrintFrame(const char *direction, const can_frame_t *frame)
 {
     if ((direction == NULL) || (frame == NULL))
     {
