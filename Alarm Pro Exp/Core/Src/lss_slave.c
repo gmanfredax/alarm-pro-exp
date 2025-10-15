@@ -92,17 +92,22 @@ static void send_identify(void)
 
 static void send_assign_ack(uint8_t status)
 {
-    uint8_t buffer[12] = {0};
+    uint8_t buffer[16] = {0};
     memcpy(&buffer[0], &device_uid, sizeof(device_uid));
     buffer[8] = node_id;
     buffer[9] = status;
+    memcpy(&buffer[10], &base_input_index, sizeof(base_input_index));
+    memcpy(&buffer[12], &base_output_index, sizeof(base_output_index));
+
     char note[96];
     (void)snprintf(note, sizeof(note),
-                   "LSS: sending assign ack status=0x%02X node=%u",
+            	   "LSS: sending assign ack status=0x%02X node=%u in@0x%04X out@0x%04X",
                    (unsigned int)status,
-                   (unsigned int)node_id);
+                   (unsigned int)node_id,
+                   (unsigned int)base_input_index,
+                   (unsigned int)base_output_index);
     CAN_Bus_DebugPrintNote(note);
-    send_segmented(LSS_OP_ACK, buffer, 10U);
+    send_segmented(LSS_OP_ACK, buffer, 14U);
 }
 
 void LSS_Slave_Init(void)
