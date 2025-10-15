@@ -124,9 +124,20 @@ bool CAN_Bus_Send(const can_frame_t *frame)
     header.DLC = frame->dlc;
 
     uint32_t mailbox;
-    if (HAL_CAN_AddTxMessage(&hcan, &header, (uint8_t *)frame->data, &mailbox) != HAL_OK)
+    HAL_StatusTypeDef status = HAL_CAN_AddTxMessage(&hcan, &header, (uint8_t *)frame->data, &mailbox);
+    if (status != HAL_OK)
     {
         tx_failed++;
+        last_error_tick = HAL_GetTick();
+        last_error_code_snapshot = HAL_CAN_GetError(&hcan);
+        char note[80];
+        uint32_t err = last_error_code_snapshot;
+        (void)snprintf(note, sizeof(note),
+                       "CAN TXERR %03lX status=%ld err=%08lX",
+                       (unsigned long)header.StdId,
+                       (long)status,
+                       (unsigned long)err);
+        CAN_Bus_DebugPrintNote(note);
         return false;
     }
     while (HAL_CAN_IsTxMessagePending(&hcan, mailbox))
@@ -230,6 +241,32 @@ void CAN_Bus_DebugPrintFrame(const char *direction, const can_frame_t *frame)
     if ((used + 2U) > sizeof(buffer))
     {
         used = sizeof(buffer) > 2U ? (sizeof(buffer) - 2U) : 0U;
+    }
+
+    buffer[used++] = '\r';
+    buffer[used++] = '\n';
+
+    HAL_UART_Transmit(&huart1, (uint8_t *)buffer, (uint16_t)used, HAL_MAX_DELAY);
+}
+
+void CAN_Bus_DebugPrintNote(const char *note)
+{
+    if (note == NULL)
+    {
+        return;
+    }
+
+    char buffer[96];
+    size_t used = 0U;
+    while ((used < (sizeof(buffer) - 2U)) && (note[used] != '\0'))
+    {
+        buffer[used] = note[used];
+        used++;
+    }
+
+    if (used == 0U)
+    {
+        return;
     }
 
     buffer[used++] = '\r';

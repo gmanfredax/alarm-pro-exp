@@ -422,6 +422,7 @@ static void monitor_can_health(uint32_t now_ms)
     static uint32_t last_check = 0U;
     static bool bus_fault_latched = false;
     static bool master_missing_latched = false;
+    static bool tx_missing_reported = false;
 
     if (LED_Ctrl_IsIdentifyActive())
     {
@@ -437,6 +438,20 @@ static void monitor_can_health(uint32_t now_ms)
 
     can_bus_diagnostics_t diag = {0};
     CAN_Bus_GetDiagnostics(&diag);
+
+    if (!tx_missing_reported && (diag.tx_successful == 0U) && (diag.rx_received > 0U) && (now_ms > 1000U))
+    {
+        CAN_Bus_DebugPrintNote("CAN diag: RX activity detected but no TX yet");
+        tx_missing_reported = true;
+    }
+    else if ((diag.tx_successful > 0U) && tx_missing_reported)
+    {
+        char note[80];
+        (void)snprintf(note, sizeof(note),
+                       "CAN diag: first TX observed at %lu ms", (unsigned long)diag.last_tx_tick);
+        CAN_Bus_DebugPrintNote(note);
+        tx_missing_reported = false;
+    }
 
     bool bus_fault = diag.bus_off || diag.error_passive || (diag.error_code != HAL_CAN_ERROR_NONE);
     bool master_missing = false;

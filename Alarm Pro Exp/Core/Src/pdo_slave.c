@@ -13,6 +13,7 @@
 #include "pins.h"
 #include "sdo_slave.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include <stdbool.h>
@@ -27,6 +28,7 @@ static uint8_t current_node_id = 0xFFU;
 static uint32_t last_inputs_bitmap = 0U;
 static uint8_t change_counter = 0U;
 static uint32_t last_tx_time = 0U;
+static bool publish_blocked_logged = false;
 
 static void apply_output_bitmap(uint32_t bitmap, uint8_t pwm_level)
 {
@@ -50,8 +52,14 @@ static void publish_inputs(uint32_t bitmap)
 {
     if (current_node_id == 0xFFU)
     {
+        if (!publish_blocked_logged)
+        {
+            CAN_Bus_DebugPrintNote("PDO: publish suppressed until node ID assigned");
+            publish_blocked_logged = true;
+        }
         return;
     }
+    publish_blocked_logged = false;
     can_frame_t frame = {0};
     frame.id = PDO_TX1_BASE + current_node_id;
     frame.dlc = 8;
@@ -66,11 +74,25 @@ void PDO_Slave_Init(void)
     last_inputs_bitmap = 0U;
     change_counter = 0U;
     last_tx_time = 0U;
+    publish_blocked_logged = false;
 }
 
 void PDO_Slave_SetNodeId(uint8_t node_id)
 {
     current_node_id = node_id;
+    if (node_id == 0xFFU)
+    {
+        publish_blocked_logged = false;
+        CAN_Bus_DebugPrintNote("PDO: disabled until node ID assigned");
+    }
+    else
+    {
+        publish_blocked_logged = false;
+        char note[80];
+        (void)snprintf(note, sizeof(note),
+                       "PDO: node ID set to %u", (unsigned int)node_id);
+        CAN_Bus_DebugPrintNote(note);
+    }
 }
 
 void PDO_Slave_OnInputChange(uint32_t bitmap, uint8_t counter)

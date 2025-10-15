@@ -16,6 +16,7 @@
 
 #include "stm32f1xx_hal.h"
 
+#include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
 
@@ -94,6 +95,12 @@ static void send_assign_ack(uint8_t status)
     memcpy(&buffer[0], &device_uid, sizeof(device_uid));
     buffer[8] = node_id;
     buffer[9] = status;
+    char note[96];
+    (void)snprintf(note, sizeof(note),
+                   "LSS: sending assign ack status=0x%02X node=%u",
+                   (unsigned int)status,
+                   (unsigned int)node_id);
+    CAN_Bus_DebugPrintNote(note);
     send_segmented(LSS_OP_ACK, buffer, 10U);
 }
 
@@ -112,6 +119,9 @@ void LSS_Slave_Init(void)
         PDO_Slave_SetNodeId(node_id);
         SDO_Slave_SetNodeId(node_id);
         Heartbeat_Slave_SetNodeId(node_id);
+        char note[96];
+        (void)snprintf(note, sizeof(note), "LSS: restored node ID %u from EEPROM", (unsigned int)node_id);
+        CAN_Bus_DebugPrintNote(note);
     }
     else
     {
@@ -121,6 +131,7 @@ void LSS_Slave_Init(void)
         PDO_Slave_SetNodeId(0xFFU);
         SDO_Slave_SetNodeId(node_id);
         Heartbeat_Slave_SetNodeId(0xFFU);
+        CAN_Bus_DebugPrintNote("LSS: no stored node ID, awaiting provisioning");
     }
 }
 
@@ -129,6 +140,11 @@ void LSS_Slave_Task(uint32_t now_ms)
     if (pending_identify && now_ms >= identify_deadline)
     {
         pending_identify = false;
+        char note[96];
+        (void)snprintf(note, sizeof(note),
+                       "LSS: sending identify for nonce 0x%08lX",
+                       (unsigned long)discover_nonce);
+        CAN_Bus_DebugPrintNote(note);
         send_identify();
     }
 }
@@ -163,6 +179,16 @@ void LSS_Slave_OnFrame(const can_frame_t *frame)
             random_delay &= 0x0FU;
             identify_deadline = HAL_GetTick() + random_delay;
             pending_identify = true;
+            char note[96];
+            (void)snprintf(note, sizeof(note),
+                           "LSS: discover received nonce=0x%08lX delay=%lums",
+                           (unsigned long)discover_nonce,
+                           (unsigned long)random_delay);
+            CAN_Bus_DebugPrintNote(note);
+        }
+        else if (node_id_assigned)
+        {
+            CAN_Bus_DebugPrintNote("LSS: discover ignored, node already assigned");
         }
         break;
     case LSS_OP_ASSIGN:
@@ -193,7 +219,19 @@ void LSS_Slave_OnFrame(const can_frame_t *frame)
                     PDO_Slave_SetNodeId(node_id);
                     SDO_Slave_SetNodeId(node_id);
                     Heartbeat_Slave_SetNodeId(node_id);
+                    char note[96];
+                    (void)snprintf(note, sizeof(note),
+                                   "LSS: node ID assigned %u inputs@0x%04X outputs@0x%04X",
+                                   (unsigned int)node_id,
+                                   (unsigned int)base_input_index,
+                                   (unsigned int)base_output_index);
+                    CAN_Bus_DebugPrintNote(note);
                     send_assign_ack(0x00U);
+
+                }
+                else
+                {
+                	CAN_Bus_DebugPrintNote("LSS: assignment payload ignored (UID mismatch)");
                 }
             }
         }

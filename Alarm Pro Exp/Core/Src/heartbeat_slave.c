@@ -13,6 +13,7 @@
 
 #include "stm32f1xx_hal.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #define HEARTBEAT_BASE 0x700U
@@ -23,16 +24,34 @@ static int16_t temperature_cc = 2500;
 static uint8_t state = 0x05U;
 static uint8_t error_bits = 0x00U;
 static uint32_t last_heartbeat = 0U;
+static bool heartbeat_blocked_logged = false;
+static bool heartbeat_ready_logged = false;
 
 void Heartbeat_Slave_Init(void)
 {
     node_id = 0xFFU;
     last_heartbeat = 0U;
+    heartbeat_blocked_logged = false;
+    heartbeat_ready_logged = false;
+    CAN_Bus_DebugPrintNote("Heartbeat: init, waiting for node ID");
 }
 
 void Heartbeat_Slave_SetNodeId(uint8_t id)
 {
     node_id = id;
+    heartbeat_ready_logged = false;
+    if (id == 0xFFU)
+    {
+        heartbeat_blocked_logged = false;
+        CAN_Bus_DebugPrintNote("Heartbeat: disabled until node ID is assigned");
+    }
+    else
+    {
+        char note[64];
+        (void)snprintf(note, sizeof(note),
+                       "Heartbeat: node ID set to %u", (unsigned int)id);
+        CAN_Bus_DebugPrintNote(note);
+    }
 }
 
 void Heartbeat_Slave_UpdateMetrics(uint16_t voltage, int16_t temperature)
@@ -45,7 +64,20 @@ void Heartbeat_Slave_Task(uint32_t now_ms)
 {
     if (!LSS_Slave_HasAssignedNodeId())
     {
+        if (!heartbeat_blocked_logged)
+        {
+            CAN_Bus_DebugPrintNote("Heartbeat: suppressed until provisioning completes");
+            heartbeat_blocked_logged = true;
+        }
+        heartbeat_ready_logged = false;
         return;
+    }
+
+    if (!heartbeat_ready_logged)
+    {
+        CAN_Bus_DebugPrintNote("Heartbeat: provisioning complete, emitting frames");
+        heartbeat_ready_logged = true;
+        heartbeat_blocked_logged = false;
     }
     if (node_id == 0xFFU)
     {

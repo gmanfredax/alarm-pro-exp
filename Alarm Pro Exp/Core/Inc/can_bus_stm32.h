@@ -61,5 +61,6 @@ void CAN_Bus_GetDiagnostics(can_bus_diagnostics_t *diagnostics);
 CAN_HandleTypeDef *CAN_Bus_GetHandle(void);
 uint8_t CAN_Bus_GetRxLog(can_bus_rx_log_entry_t *entries, uint8_t max_entries);
 void CAN_Bus_DebugPrintFrame(const char *direction, const can_frame_t *frame);
+void CAN_Bus_DebugPrintNote(const char *note);
 
 #endif /* INC_CAN_BUS_STM32_H_ */

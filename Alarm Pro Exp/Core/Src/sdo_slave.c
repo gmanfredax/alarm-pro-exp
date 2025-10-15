@@ -12,6 +12,7 @@
 #include "eeprom_emul.h"
 #include "pins.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #define SDO_RX_BASE 0x600U
@@ -21,6 +22,8 @@ static uint8_t node_id = 0xFFU;
 static input_config_t input_config[INPUT_CHANNEL_COUNT];
 static output_config_t output_config[OUTPUT_CHANNEL_COUNT];
 static board_info_t board_info;
+static bool node_id_blocked_logged = false;
+static bool node_id_ready_logged = false;
 
 static void send_abort(uint16_t index, uint8_t subindex, uint32_t code)
 {
@@ -137,6 +140,8 @@ void SDO_Slave_Init(void)
     EEPROM_LoadBoardInfo(&board_info);
     EEPROM_LoadInputConfig(input_config, INPUT_CHANNEL_COUNT);
     EEPROM_LoadOutputConfig(output_config, OUTPUT_CHANNEL_COUNT);
+    node_id_blocked_logged = false;
+    node_id_ready_logged = false;
 }
 
 void SDO_Slave_LoadDefaults(void)
@@ -159,6 +164,19 @@ void SDO_Slave_LoadDefaults(void)
 void SDO_Slave_SetNodeId(uint8_t id)
 {
     node_id = id;
+    node_id_ready_logged = false;
+    if (id == 0xFFU)
+    {
+        node_id_blocked_logged = false;
+        CAN_Bus_DebugPrintNote("SDO: disabled until node ID assigned");
+    }
+    else
+    {
+        char note[80];
+        (void)snprintf(note, sizeof(note),
+                       "SDO: node ID set to %u", (unsigned int)id);
+        CAN_Bus_DebugPrintNote(note);
+    }
 }
 
 const input_config_t *SDO_Slave_GetInputConfig(uint8_t channel)
@@ -175,7 +193,18 @@ void SDO_Slave_OnFrame(const can_frame_t *frame)
 {
     if (node_id == 0xFFU)
     {
+        if (!node_id_blocked_logged)
+        {
+            CAN_Bus_DebugPrintNote("SDO: request ignored, node ID not assigned");
+            node_id_blocked_logged = true;
+        }
         return;
+    }
+    node_id_blocked_logged = false;
+    if (!node_id_ready_logged)
+    {
+        CAN_Bus_DebugPrintNote("SDO: node ID active, processing requests");
+        node_id_ready_logged = true;
     }
     if (frame->id != (SDO_RX_BASE + node_id))
     {
