@@ -5,7 +5,6 @@
  *      Author: gabriele
  */
 
-
 #include "can_app.h"
 #include "hw_profile.h"
 #include "can_bus_protocol.h"

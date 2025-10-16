@@ -1,13 +1,3 @@
-/*
- * can_bus_protocol.h
- *
- *  Created on: Oct 16, 2025
- *      Author: gabriele
- */
-
-#ifndef INC_CAN_BUS_PROTOCOL_H_
-#define INC_CAN_BUS_PROTOCOL_H_
-
 #pragma once
 
 #include <stdint.h>
@@ -109,5 +99,3 @@ typedef struct __attribute__((packed)) {
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* INC_CAN_BUS_PROTOCOL_H_ */
