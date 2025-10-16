@@ -275,7 +275,7 @@ void CAN_Bus_DebugPrintNote(const char *note)
     HAL_UART_Transmit(&huart1, (uint8_t *)buffer, (uint16_t)used, HAL_MAX_DELAY);
 }
 
-void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan_ptr)
+/*void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan_ptr)
 {
 #if CAN_TEST_BROADCAST
     if (hcan_ptr != &hcan)
@@ -320,7 +320,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan_ptr)
 #else
     (void)hcan_ptr;
 #endif
-}
+}*/
 
 CAN_HandleTypeDef *CAN_Bus_GetHandle(void)
 {

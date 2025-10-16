@@ -57,7 +57,8 @@ extern "C" {
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
-
+extern CAN_HandleTypeDef hcan;
+extern TIM_HandleTypeDef htim2;
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/

@@ -22,6 +22,7 @@
 #include "stm32f1xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "can_app.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -57,7 +58,7 @@
 /* External variables --------------------------------------------------------*/
 extern CAN_HandleTypeDef hcan;
 /* USER CODE BEGIN EV */
-extern CAN_HandleTypeDef hcan;
+
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -187,6 +188,7 @@ void SysTick_Handler(void)
   /* USER CODE END SysTick_IRQn 0 */
   HAL_IncTick();
   /* USER CODE BEGIN SysTick_IRQn 1 */
+  HAL_SYSTICK_IRQHandler();
 
   /* USER CODE END SysTick_IRQn 1 */
 }
@@ -211,3 +213,19 @@ void USB_LP_CAN1_RX0_IRQHandler(void)
 
   /* USER CODE END USB_LP_CAN1_RX0_IRQn 1 */
 }
+
+/* USER CODE BEGIN 1 */
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan_arg)
+{
+    CAN_RxHeaderTypeDef header = {0};
+    uint8_t data[8] = {0};
+    if (HAL_CAN_GetRxMessage(hcan_arg, CAN_RX_FIFO0, &header, data) == HAL_OK) {
+        can_app_on_message(&header, data);
+    }
+}
+
+void TIM2_IRQHandler(void)
+{
+    HAL_TIM_IRQHandler(&htim2);
+}
+/* USER CODE END 1 */

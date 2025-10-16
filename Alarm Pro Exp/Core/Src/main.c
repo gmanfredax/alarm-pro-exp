@@ -21,14 +21,17 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "can_bus_stm32.h"
+#include "can_app.h"
+#include "hw_profile.h"
+
+/*#include "can_bus_stm32.h"
 #include "eeprom_emul.h"
 #include "heartbeat_slave.h"
 #include "led_ctrl.h"
 #include "lss_slave.h"
 #include "pdo_slave.h"
 #include "pins.h"
-#include "sdo_slave.h"
+#include "sdo_slave.h"*/
 
 #include <stdbool.h>
 #include <string.h>
@@ -47,9 +50,9 @@ typedef struct
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-static input_channel_state_t input_state[INPUT_CHANNEL_COUNT];
+/*static input_channel_state_t input_state[INPUT_CHANNEL_COUNT];
 static uint32_t inputs_bitmap = 0U;
-static uint8_t input_change_counter = 0U;
+static uint8_t input_change_counter = 0U;*/
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -59,6 +62,8 @@ static uint8_t input_change_counter = 0U;
 
 /* Private variables ---------------------------------------------------------*/
 CAN_HandleTypeDef hcan;
+
+TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart1;
 
@@ -71,9 +76,10 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_CAN_Init(void);
 static void MX_USART1_UART_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
-static void process_can_frames(void);
-static void monitor_can_health(uint32_t now_ms);
+/*static void process_can_frames(void);
+static void monitor_can_health(uint32_t now_ms);*/
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -147,8 +153,8 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-	uint8_t MSG[35] = {'\0'};
-	uint8_t X = 0;
+/*	uint8_t MSG[35] = {'\0'};
+	uint8_t X = 0;*/
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -171,8 +177,9 @@ int main(void)
   MX_GPIO_Init();
   MX_CAN_Init();
   MX_USART1_UART_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-  CAN_Bus_Init();
+/*  CAN_Bus_Init();
 #if CAN_TEST_BROADCAST
   CAN_TestToggle_Init();
 #endif
@@ -181,13 +188,30 @@ int main(void)
   PDO_Slave_Init();
   Heartbeat_Slave_Init();
   LSS_Slave_Init();
-  CAN_Bus_Start();
+  CAN_Bus_Start();*/
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
-  sprintf(MSG, "Hello Dudes! Tracing X = %d\r\n", X);
+  can_app_init(&hcan);
+
+  if (HAL_CAN_Start(&hcan) != HAL_OK) {
+      Error_Handler();
+  }
+  if (HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) {
+      Error_Handler();
+  }
+  if (HAL_TIM_Base_Start_IT(&htim2) != HAL_OK) {
+      Error_Handler();
+  }
+
+  while (1) {
+      can_app_periodic();
+      HAL_Delay(10);
+  }
+
+  /*sprintf(MSG, "Hello Dudes! Tracing X = %d\r\n", X);
   HAL_UART_Transmit(&huart1, MSG, sizeof(MSG), 100);
   HAL_Delay(500);
   while (1)
@@ -240,11 +264,11 @@ int main(void)
       LSS_Slave_Task(now);
       monitor_can_health(now);
 
-      HAL_Delay(1);
+      HAL_Delay(1);*/
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-  }
+/*  }*/
   /* USER CODE END 3 */
 }
 
@@ -313,14 +337,83 @@ static void MX_CAN_Init(void)
   hcan.Init.AutoWakeUp = ENABLE;
   hcan.Init.AutoRetransmission = ENABLE;
   hcan.Init.ReceiveFifoLocked = DISABLE;
-  hcan.Init.TransmitFifoPriority = ENABLE;
+  hcan.Init.TransmitFifoPriority = DISABLE;
   if (HAL_CAN_Init(&hcan) != HAL_OK)
   {
     Error_Handler();
   }
   /* USER CODE BEGIN CAN_Init 2 */
 
+  CAN_FilterTypeDef filter = {
+      .FilterBank = 0,
+      .FilterMode = CAN_FILTERMODE_IDMASK,
+      .FilterScale = CAN_FILTERSCALE_32BIT,
+      .FilterIdHigh = 0x0000,
+      .FilterIdLow = 0x0000,
+      .FilterMaskIdHigh = 0x0000,
+      .FilterMaskIdLow = 0x0000,
+      .FilterFIFOAssignment = CAN_FILTER_FIFO0,
+      .FilterActivation = ENABLE,
+      .SlaveStartFilterBank = 14,
+  };
+
+  if (HAL_CAN_ConfigFilter(&hcan, &filter) != HAL_OK) {
+      Error_Handler();
+  }
+
+  HAL_NVIC_SetPriority(USB_LP_CAN1_RX0_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(USB_LP_CAN1_RX0_IRQn);
+
   /* USER CODE END CAN_Init 2 */
+
+}
+
+/**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+    __HAL_RCC_TIM2_CLK_ENABLE();
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = (uint32_t)(HAL_RCC_GetPCLK1Freq() / 10000U) - 1U;;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 100U - 1U; // 10 ms tick
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  HAL_NVIC_SetPriority(TIM2_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(TIM2_IRQn);
+
+  /* USER CODE END TIM2_Init 2 */
 
 }
 
@@ -416,7 +509,13 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-static void monitor_can_health(uint32_t now_ms)
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+    if (htim->Instance == TIM2) {
+        can_app_on_timer_tick();
+    }
+}
+/*static void monitor_can_health(uint32_t now_ms)
 {
     static uint32_t last_check = 0U;
     static bool bus_fault_latched = false;
@@ -516,7 +615,7 @@ static void process_can_frames(void)
         SDO_Slave_OnFrame(&frame);
         LED_Ctrl_AnnounceTraffic(40U);
     }
-}
+}*/
 /* USER CODE END 4 */
 
 /**
@@ -530,7 +629,8 @@ void Error_Handler(void)
   __disable_irq();
   while (1)
   {
-      HAL_GPIO_TogglePin(LED_IDENTIFY_PORT, LED_IDENTIFY_PIN);
+      /*HAL_GPIO_TogglePin(LED_IDENTIFY_PORT, LED_IDENTIFY_PIN);*/
+      HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
       HAL_Delay(100);
   }
   /* USER CODE END Error_Handler_Debug */
@@ -546,6 +646,9 @@ void Error_Handler(void)
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */
+    (void)file;
+    (void)line;
+    Error_Handler();
   /* User can add his own implementation to report the file name and line number,
      ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
   /* USER CODE END 6 */
