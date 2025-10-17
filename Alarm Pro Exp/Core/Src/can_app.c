@@ -141,13 +141,24 @@ void can_app_on_message(const CAN_RxHeaderTypeDef *rx_header, const uint8_t *dat
     if (cob_id == CAN_PROTO_ID_BROADCAST_ADDR_ASSIGN) {
         if (rx_header->DLC >= sizeof(can_proto_addr_assign_t)) {
             const can_proto_addr_assign_t *assign = (const can_proto_addr_assign_t *)data;
-            if (can_app_uid_matches(assign->uid, sizeof(assign->uid)) && assign->node_id != 0u) {
-                s_ctx.node_id = assign->node_id;
-                s_ctx.assigned = true;
-                s_ctx.last_info_ms = 0;
-                s_ctx.last_heartbeat_ms = millis() - HEARTBEAT_PERIOD_MS;
-                can_app_send_info();
-                can_app_send_heartbeat(true);
+            if (can_app_uid_matches(assign->uid, sizeof(assign->uid))) {
+                if (assign->node_id == 0u) {
+                    s_ctx.node_id = 0u;
+                    s_ctx.assigned = false;
+                    s_ctx.last_addr_request_ms = 0u;
+                    s_ctx.last_info_ms = 0u;
+                    s_ctx.last_heartbeat_ms = millis();
+                    s_ctx.identify_enabled = false;
+                    hw_profile_identify(false);
+                    can_app_send_addr_request();
+                } else {
+                    s_ctx.node_id = assign->node_id;
+                    s_ctx.assigned = true;
+                    s_ctx.last_info_ms = 0;
+                    s_ctx.last_heartbeat_ms = millis() - HEARTBEAT_PERIOD_MS;
+                    can_app_send_info();
+                    can_app_send_heartbeat(true);
+                }
             }
         }
         return;
